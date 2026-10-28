@@ -245,7 +245,7 @@ internal sealed class RtConsumer
                 int fileOffset = Marshal.ReadInt32(mem, EtwNative.PropsLogFileNameOffset);
                 string file = fileOffset == 0 ? string.Empty : Marshal.PtrToStringUni(new IntPtr(mem.ToInt64() + fileOffset));
                 string mode = realTime ? (file.Length == 0 ? "real-time" : "file+real-time") : "file only (not readable)";
-                sb.AppendLine(name + "  [" + mode + "]" + (file.Length == 0 ? string.Empty : "  " + file));
+                sb.AppendLine("- " + name + ": " + mode);
             }
         }
         finally
