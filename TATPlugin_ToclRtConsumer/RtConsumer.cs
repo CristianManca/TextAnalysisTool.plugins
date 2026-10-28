@@ -357,9 +357,15 @@ internal sealed class RtConsumer
 
     private void FlushWriters()
     {
+        List<SessionState> sessions;
         lock (m_lock)
         {
-            foreach (SessionState s in m_sessions.Values)
+            sessions = new List<SessionState>(m_sessions.Values);
+        }
+
+        foreach (SessionState s in sessions)
+        {
+            lock (s)
             {
                 if (s.Writer != null)
                 {
@@ -377,17 +383,20 @@ internal sealed class RtConsumer
 
     private void CloseWriter(SessionState s)
     {
-        if (s.Writer != null)
+        lock (s)
         {
-            try
+            if (s.Writer != null)
             {
-                s.Writer.Dispose();
-            }
-            catch (IOException)
-            {
-            }
+                try
+                {
+                    s.Writer.Dispose();
+                }
+                catch (IOException)
+                {
+                }
 
-            s.Writer = null;
+                s.Writer = null;
+            }
         }
     }
 
@@ -453,11 +462,15 @@ internal sealed class RtConsumer
         try
         {
             FileStream stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
-            StreamWriter writer = new StreamWriter(stream, new UTF8Encoding(true));
+            StreamWriter writer = new StreamWriter(stream, new UTF8Encoding(true), 65536);
             writer.Flush();
-            lock (m_lock)
+            lock (state)
             {
                 state.Writer = writer;
+            }
+
+            lock (m_lock)
+            {
                 state.FilePath = path;
             }
 
@@ -482,7 +495,7 @@ internal sealed class RtConsumer
             }
 
             string line = decoder.Decode(record);
-            lock (m_lock)
+            lock (state)
             {
                 if (state.Writer != null)
                 {

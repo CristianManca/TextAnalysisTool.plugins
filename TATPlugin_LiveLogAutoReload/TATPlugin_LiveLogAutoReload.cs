@@ -8,6 +8,9 @@ using System.Windows.Forms;
 public sealed class TATPlugin_LiveLogAutoReload
 {
     private const int RefreshIntervalMilliseconds = 500;
+    private const int MaxReloadDelayMilliseconds = 10000;
+    private const int ReloadCostFactor = 4;
+    private int m_nextReloadTick;
 
     private Timer m_timer;
     private object m_textAnalysisTool;
@@ -350,14 +353,29 @@ public sealed class TATPlugin_LiveLogAutoReload
             return;
         }
 
+        // A full reload costs time proportional to the file size and blocks the UI thread:
+        // wait several times the last reload duration so the UI keeps some breathing room.
+        if (Environment.TickCount - m_nextReloadTick < 0)
+        {
+            return;
+        }
+
         m_fileLength = file.Length;
         m_lastWriteTimeUtc = file.LastWriteTimeUtc;
 
         try
         {
+            Stopwatch stopwatch = Stopwatch.StartNew();
             m_reloadLinesMethod.Invoke(m_textAnalysisTool, null);
             m_scrollPending = true;
             ScrollToEnd();
+            stopwatch.Stop();
+            long wait = Math.Min(MaxReloadDelayMilliseconds, Math.Max(RefreshIntervalMilliseconds, stopwatch.ElapsedMilliseconds * ReloadCostFactor));
+            m_nextReloadTick = Environment.TickCount + (int)wait;
+            if (wait > RefreshIntervalMilliseconds)
+            {
+                WriteDiagnostic("Reload took " + stopwatch.ElapsedMilliseconds + " ms; next reload in " + wait + " ms");
+            }
         }
         catch (Exception exception)
         {
@@ -386,6 +404,7 @@ public sealed class TATPlugin_LiveLogAutoReload
         }
 
         m_textAnalysisTool = null;
+        m_nextReloadTick = Environment.TickCount;
         m_currentFileNameField = null;
         m_reloadLinesMethod = null;
         m_fileName = null;
