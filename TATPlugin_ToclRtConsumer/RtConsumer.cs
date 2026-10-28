@@ -15,7 +15,7 @@ internal sealed class RtSettings
 
     public string TmfPath = string.Empty;
     public string PdbPath = string.Empty;
-    public string OutputFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "TOCL_RT");
+    public string OutputFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TOCL_RT");
     public List<string> Sessions = new List<string>();
     public bool OpenFirstFile = true;
 
