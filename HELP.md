@@ -423,11 +423,11 @@ TextAnalysisTool.plugins\
   TATPlugin_<Name>\
     TATPlugin_<Name>.cs           source
     Build.cmd                     builds to bin\TATPlugin_<Name>.dll
-    ReadMe.txt                    plug-in specific usage
+    README.md                    plug-in specific usage
 ```
 
-- One folder per plug-in with its own `Build.cmd` and `ReadMe.txt`.
+- One folder per plug-in with its own `Build.cmd` and `README.md`.
 - `bin\`, `*.dll` and `*.exe` are git-ignored; commit sources only.
-- Document in each plug-in's ReadMe: what it does, how to build and install,
+- Document in each plug-in's README: what it does, how to build and install,
   options/menus it adds, the application version it was tested with, and
   where its diagnostics are written.
