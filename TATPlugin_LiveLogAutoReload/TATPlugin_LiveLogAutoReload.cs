@@ -30,6 +30,7 @@ public sealed class TATPlugin_LiveLogAutoReload
 
     public TATPlugin_LiveLogAutoReload()
     {
+        LoadTailSettings();
         WriteDiagnostic("Plug-in constructor invoked. Assembly: " + typeof(TATPlugin_LiveLogAutoReload).Assembly.Location);
     }
 
@@ -65,7 +66,7 @@ public sealed class TATPlugin_LiveLogAutoReload
 
             Encoding encoding = GetCurrentEncoding();
             StartWatching(fileName);
-            return new StreamReader(stream, encoding, true);
+            return OpenReader(stream, encoding);
         }
         catch (Exception exception)
         {
@@ -246,9 +247,239 @@ public sealed class TATPlugin_LiveLogAutoReload
             toolStripMenu.DropDownItems.Add(new ToolStripSeparator());
             toolStripMenu.DropDownItems.Add(reloadItem);
             toolStripMenu.DropDownItems.Add(scrollItem);
+
+            ToolStripMenuItem tailItem = new ToolStripMenuItem("Live log tail mode (last lines only)");
+            tailItem.CheckOnClick = true;
+            tailItem.Checked = s_tailEnabled;
+            ToolStripMenuItem tailLinesItem = new ToolStripMenuItem(TailLinesCaption());
+            tailItem.Click += delegate
+            {
+                s_tailEnabled = tailItem.Checked;
+                SaveTailSettings();
+                ForceReload();
+            };
+            tailLinesItem.Click += delegate
+            {
+                int lines = PromptTailLines(s_tailLines);
+                if (lines > 0 && lines != s_tailLines)
+                {
+                    s_tailLines = lines;
+                    tailLinesItem.Text = TailLinesCaption();
+                    SaveTailSettings();
+                    if (s_tailEnabled)
+                    {
+                        ForceReload();
+                    }
+                }
+            };
+            toolStripMenu.DropDownItems.Add(tailItem);
+            toolStripMenu.DropDownItems.Add(tailLinesItem);
             s_autoReloadMenuItem = reloadItem;
             s_autoScrollMenuItem = scrollItem;
             return;
+        }
+    }
+
+    private const int DefaultTailLines = 100000;
+    private static bool s_tailEnabled;
+    private static int s_tailLines = DefaultTailLines;
+
+    private static string TailSettingsPath
+    {
+        get
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "TATPlugin_LiveLogAutoReload",
+                "settings.ini");
+        }
+    }
+
+    private static string TailLinesCaption()
+    {
+        return "Live log tail lines: " + s_tailLines.ToString("N0") + "...";
+    }
+
+    private static void LoadTailSettings()
+    {
+        try
+        {
+            if (!File.Exists(TailSettingsPath))
+            {
+                return;
+            }
+
+            foreach (string line in File.ReadAllLines(TailSettingsPath))
+            {
+                string[] parts = line.Split(new[] { '=' }, 2);
+                int number;
+                if (parts.Length != 2)
+                {
+                    continue;
+                }
+
+                if (parts[0].Trim() == "TailEnabled")
+                {
+                    s_tailEnabled = parts[1].Trim() == "1";
+                }
+                else if (parts[0].Trim() == "TailLines" && int.TryParse(parts[1].Trim(), out number) && number > 0)
+                {
+                    s_tailLines = number;
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            WriteDiagnostic("Cannot read settings: " + exception.Message);
+        }
+    }
+
+    private static void SaveTailSettings()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(TailSettingsPath));
+            File.WriteAllLines(
+                TailSettingsPath,
+                new[] { "TailEnabled=" + (s_tailEnabled ? "1" : "0"), "TailLines=" + s_tailLines });
+        }
+        catch (Exception exception)
+        {
+            WriteDiagnostic("Cannot save settings: " + exception.Message);
+        }
+    }
+
+    private static int PromptTailLines(int current)
+    {
+        using (Form dialog = new Form())
+        {
+            dialog.Text = "Live log tail mode";
+            dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+            dialog.StartPosition = FormStartPosition.CenterParent;
+            dialog.MaximizeBox = false;
+            dialog.MinimizeBox = false;
+            dialog.ClientSize = new System.Drawing.Size(330, 100);
+
+            Label label = new Label();
+            label.Text = "Number of last lines to load:";
+            label.SetBounds(10, 12, 310, 18);
+            NumericUpDown number = new NumericUpDown();
+            number.Minimum = 100;
+            number.Maximum = 100000000;
+            number.Increment = 10000;
+            number.Value = Math.Min(number.Maximum, Math.Max(number.Minimum, current));
+            number.SetBounds(10, 34, 150, 22);
+            Button ok = new Button();
+            ok.Text = "OK";
+            ok.DialogResult = DialogResult.OK;
+            ok.SetBounds(165, 64, 75, 26);
+            Button cancel = new Button();
+            cancel.Text = "Cancel";
+            cancel.DialogResult = DialogResult.Cancel;
+            cancel.SetBounds(245, 64, 75, 26);
+            dialog.Controls.AddRange(new Control[] { label, number, ok, cancel });
+            dialog.AcceptButton = ok;
+            dialog.CancelButton = cancel;
+
+            Form owner = Application.OpenForms.Count > 0 ? Application.OpenForms[0] : null;
+            return dialog.ShowDialog(owner) == DialogResult.OK ? (int)number.Value : 0;
+        }
+    }
+
+    // In tail mode only the last N lines are handed to TAT, so reload cost stays bounded.
+    private static TextReader OpenReader(FileStream stream, Encoding encoding)
+    {
+        if (!s_tailEnabled)
+        {
+            return new StreamReader(stream, encoding, true);
+        }
+
+        byte[] head = new byte[4];
+        int headLength = stream.Read(head, 0, 4);
+        stream.Position = 0;
+        bool utf8Bom = headLength >= 3 && head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF;
+        bool wide = headLength >= 2 && ((head[0] == 0xFE && head[1] == 0xFF) || (head[0] == 0xFF && head[1] == 0xFE));
+        if (wide)
+        {
+            WriteDiagnostic("Tail mode not supported for UTF-16/32 files; loading the whole file.");
+            return new StreamReader(stream, encoding, true);
+        }
+
+        long start = FindTailStart(stream, s_tailLines);
+        if (start <= 0)
+        {
+            stream.Position = 0;
+            return new StreamReader(stream, encoding, true);
+        }
+
+        stream.Position = start;
+        WriteDiagnostic("Tail mode: loading from byte " + start + " of " + stream.Length);
+        return new StreamReader(stream, utf8Bom ? Encoding.UTF8 : encoding, false);
+    }
+
+    private static long FindTailStart(FileStream stream, int lines)
+    {
+        long end = stream.Length;
+        if (end == 0)
+        {
+            return 0;
+        }
+
+        stream.Position = end - 1;
+        if (stream.ReadByte() == '\n')
+        {
+            end--;
+        }
+
+        byte[] buffer = new byte[65536];
+        long position = end;
+        int count = 0;
+        while (position > 0)
+        {
+            int size = (int)Math.Min(buffer.Length, position);
+            position -= size;
+            stream.Position = position;
+            int read = 0;
+            while (read < size)
+            {
+                int n = stream.Read(buffer, read, size - read);
+                if (n <= 0)
+                {
+                    return 0;
+                }
+
+                read += n;
+            }
+
+            for (int i = size - 1; i >= 0; i--)
+            {
+                if (buffer[i] == '\n' && ++count == lines)
+                {
+                    return position + i + 1;
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    private void ForceReload()
+    {
+        if (m_textAnalysisTool == null || m_reloadLinesMethod == null)
+        {
+            return;
+        }
+
+        try
+        {
+            m_reloadLinesMethod.Invoke(m_textAnalysisTool, null);
+            ResyncBaseline();
+            m_scrollPending = true;
+            ScrollToEnd();
+        }
+        catch (Exception exception)
+        {
+            WriteDiagnostic("Reload after option change failed: " + exception);
         }
     }
 

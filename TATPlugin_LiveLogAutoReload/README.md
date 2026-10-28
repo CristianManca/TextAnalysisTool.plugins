@@ -13,6 +13,15 @@ Two items are added at the end of the **View** menu:
 
 The plug-in handles **every file** opened from disk, whatever the extension. Following stops when another file is opened or the file is removed. `File | Reload` keeps working. Options are not remembered between runs.
 
+**Tail mode:** two more View-menu items limit what is loaded to the last N lines, like `tail -n`:
+
+| Menu item | Default | Behavior |
+|---|---|---|
+| **Live log tail mode (last lines only)** | off | When on, only the last N lines are handed to TAT (the file is read backwards from its end), so each reload stays fast however big the log gets. Older lines are not shown and line numbers restart from 1. |
+| **Live log tail lines: N...** | 100,000 | Sets N (100 to 100,000,000). |
+
+Both are saved in `%APPDATA%\TATPlugin_LiveLogAutoReload\settings.ini`. Tail mode does not apply to UTF-16/32 files (they are loaded whole).
+
 **Large logs:** TAT can only reload the whole file, which blocks its UI. The plug-in therefore measures each reload and waits at least 4× its duration (between 0.5 s and 10 s) before the next one, so the UI stays responsive as the log grows. Slow reloads are recorded in the diagnostic log.
 
 > Because it claims all files, other plug-ins (e.g. `*.lines` sample) may never get a chance to handle theirs. Remove this DLL if you need them.

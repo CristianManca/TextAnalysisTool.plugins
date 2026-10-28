@@ -8,7 +8,7 @@ if not exist "%CSC%" (
 )
 
 if not exist "%~dp0bin" mkdir "%~dp0bin"
-"%CSC%" /nologo /target:library /reference:System.Windows.Forms.dll /out:"%~dp0bin\TATPlugin_LiveLogAutoReload.dll" "%~dp0TATPlugin_LiveLogAutoReload.cs"
+"%CSC%" /nologo /target:library /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /out:"%~dp0bin\TATPlugin_LiveLogAutoReload.dll" "%~dp0TATPlugin_LiveLogAutoReload.cs"
 if errorlevel 1 exit /b %errorlevel%
 echo Built "%~dp0bin\TATPlugin_LiveLogAutoReload.dll"
 echo Copy it next to TextAnalysisTool.NET.exe to install it.
